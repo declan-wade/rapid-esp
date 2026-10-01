@@ -1,0 +1,57 @@
+name: Release firmware
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+env:
+  ESP32_INDEX: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+  TAG: ${{ github.event.release.tag_name }}
+  SKETCH: firmware/gpio-http
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: esp32-devkit
+            fqbn: esp32:esp32:esp32
+          - name: esp32s3-devkitc
+            fqbn: esp32:esp32:esp32s3
+          - name: esp32c3-devkitm
+            fqbn: esp32:esp32:esp32c3
+          - name: esp32c6-devkitc
+            fqbn: esp32:esp32:esp32c6
+          - name: lolin-s2-mini
+            fqbn: esp32:esp32:lolin_s2_mini
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Install core and libraries
+        # Installs the latest 3.x core. Pin with esp32:esp32@<version> once you've tested one.
+        run: |
+          arduino-cli core update-index --additional-urls "$ESP32_INDEX"
+          arduino-cli core install esp32:esp32 --additional-urls "$ESP32_INDEX"
+          arduino-cli lib install ArduinoJson WiFiManager
+
+      - name: Write version header
+        run: echo "#define FW_VERSION \"$TAG\"" > "$SKETCH/version.h"
+
+      - name: Compile
+        run: arduino-cli compile --fqbn "${{ matrix.fqbn }}" --output-dir build "$SKETCH"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OUT="gpio-http-${{ matrix.name }}-$TAG.bin"
+          cp build/gpio-http.ino.merged.bin "$OUT"
+          gh release upload "$TAG" "$OUT" --clobber
